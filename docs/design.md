@@ -350,6 +350,7 @@ erDiagram
 6. **回数制限**(Rails 8 の `rate_limit`):
    - `POST /v1/accounts`: IP ごと(例: 1時間に10回)。
    - `POST /v1/invitations/accept`、`POST /v1/transfers`: IP ごと、および利用者ごと(例: 10分に5回)。コードの長さ、有効期限、1回限りと組み合わせて、総当たりを現実的でなくする。
+   - 回数の保存先は、Rails のキャッシュ(`:memory_store`)。本番は1台・1プロセスで動かすので、プロセス内の保存で足りる。再起動で回数は消えるが、コードの強さと有効期限で補う。台数を増やす場合は、DB を保存先にする(Solid Cache を primary に置く)ことを ADR で検討する。
 7. **使われていない利用者**: 家族に入らないまま一定期間(例: 30日)使われなかった利用者は、作成時の処理(4.10 と同じく書き込み時)で削除する。初回起動だけして放置された利用者を溜めない。
 
 > **iOS の Keychain**: アプリを削除しても Keychain の項目が残る場合があり、再インストール時に同じ利用者に戻れることがある。ただし、OS の仕様として保証されていないため、**これに頼らない**(引き継ぎコードと再招待を正規の手段とする)。
@@ -441,7 +442,7 @@ app/                         # Expo(expo-router)
 |---|---|
 | 環境 | 開発(Docker Compose + Expo の開発ビルド)、本番(Fly.io + Neon) |
 | 本番の構成(第一候補) | api を Fly.io(Docker、東京)で動かし、PostgreSQL は Neon の無料プランを使う。web(静的)は Cloudflare Pages に置く。アプリは EAS Build で作り、TestFlight / 内部テストで配る。**Neon の東京リージョンの有無、Fly の東京の料金を確認したうえで、週3のデプロイ前に最終決定する** |
-| 本番DBの前提 | `DATABASE_URL` で接続する。Neon の接続プーラー(PgBouncer)経由の場合、Rails は `prepared_statements: false` が必要になる見込み(要確認)。本番のDBは primary の1つだけで、cache・cable・queue の別DBは使わない |
+| 本番DBの前提 | `DATABASE_URL` で接続する。Neon の接続プーラー(PgBouncer)経由の場合、Rails は `prepared_statements: false` が必要になる見込み(要確認)。本番のDBは primary の1つだけで、cache・cable・queue の別DBは使わない(Solid Cache / Queue / Cable、Action Mailer、Active Job は外した) |
 | 設定 | 環境変数で注入。秘匿情報は、ホスティングの Secrets に置く |
 | マイグレーション | デプロイ時に自動実行。破壊的変更は2段階で行う |
 | バックアップ | Neon の無料プランで復元できるのは6時間まで(要確認)。**定期的なダンプ(`pg_dump`)を、GitHub Actions で取り、別の場所へ保管する**。保管期間は90日以内とする。復元手順を README に残し、実際に復元を試す |
