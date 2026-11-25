@@ -1,0 +1,17 @@
+elder:
+  family: ours
+  name: あお
+  color: blue
+  position: 0
+
+younger:
+  family: ours
+  name: もも
+  color: pink
+  position: 1
+
+others_child:
+  family: others
+  name: よその子
+  color: blue
+  position: 0

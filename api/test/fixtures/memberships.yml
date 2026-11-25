@@ -1,0 +1,14 @@
+papa:
+  user: papa
+  family: ours
+  role: owner
+
+mama:
+  user: mama
+  family: ours
+  role: member
+
+other_parent:
+  user: other_parent
+  family: others
+  role: owner
