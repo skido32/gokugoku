@@ -1,0 +1,10 @@
+papa:
+  name: パパ
+
+mama:
+  name: ママ
+
+other_parent:
+  name: よその親
+
+newcomer: {}

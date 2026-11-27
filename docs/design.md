@@ -122,26 +122,40 @@ erDiagram
 
 ### 2.2 テーブル定義(要点)
 
-主キーはすべて UUID(v7 を想定)とする。連番にしないのは、ID から件数や順序が推測されるのを避けるため。
+主キーはすべて UUID v4(PostgreSQL の `gen_random_uuid()`)とする。連番にしないのは、ID から件数や順序が推測されるのを避けるため。v7 は作成時刻が ID に含まれ、この目的に反するので使わない(データ量が小さく、v7 の利点であるインデックスの局所性も効かない)。
+
+文字数の上限(アプリと API で同じ値を使う):
+
+| 項目 | 上限 |
+|---|---|
+| 利用者の呼び名 | 20文字 |
+| 家族名 | 30文字 |
+| 子どもの名前 | 20文字 |
 
 #### users
 | カラム | 型 | 制約 | 備考 |
 |---|---|---|---|
 | name | string | NULL 可 | 呼び名(履歴の記録者に出す)。**初回ガイドで入力させる**。入力前は NULL で、画面では「あなた」と表示する |
 
+家族への参加・作成の時点で、呼び名を必須にする(API で検証する)。
+
 #### families
 | カラム | 型 | 制約 | 備考 |
 |---|---|---|---|
 | name | string | NOT NULL | |
 | time_zone | string | NOT NULL, 既定 `Asia/Tokyo` | 履歴の日付区切りに使う |
-| default_feeding_kind | string | NOT NULL, 既定 `formula` | F-FEED-3 |
+| default_feeding_kind | string | NOT NULL, 既定 `formula`, CHECK(`formula` / `breast`) | F-FEED-3 |
+
+`time_zone` は、IANA のタイムゾーン名(例: `Asia/Tokyo`)だけを受け付ける。
 
 #### memberships
 | カラム | 型 | 制約 |
 |---|---|---|
 | user_id | uuid | NOT NULL, **UNIQUE**(MVP は1家族のみ。F-FAM-5) |
 | family_id | uuid | NOT NULL, FK |
-| role | string | NOT NULL(`owner` / `member`) |
+| role | string | NOT NULL, CHECK(`owner` / `member`) |
+
+利用者の削除・家族の削除で、所属も消える(ON DELETE CASCADE)。
 
 家族の最大6人は、アプリケーション側で検証する(F-FAM-4)。
 
@@ -151,19 +165,21 @@ erDiagram
 | family_id | uuid | NOT NULL, FK |
 | name | string | NOT NULL |
 | birthday | date | |
-| color | string | NOT NULL |
-| position | integer | NOT NULL。家族内で UNIQUE |
+| color | string | NOT NULL, CHECK(下の色の名前) |
+| position | integer | NOT NULL, CHECK 0〜3。家族内で UNIQUE(遅延評価。並べ替えで入れ替えられるように) |
 
-人数の上限(4人)は、アプリケーション側で検証する(F-CHILD-3)。
+- 人数の上限(4人)は、アプリケーション側で検証する(F-CHILD-3)。
+- 色は、色の値ではなく**名前**で持つ(`blue` / `pink` / `green` / `orange` / `purple` / `yellow`)。実際の色はアプリが決める。登録時は、家族の中で使われていない色を順に割り当てる(F-CHILD-2)。
+- `UNIQUE (family_id, id)` を持たせ、feeding_events から複合の外部キーで参照する(下記)。
 
 #### feeding_events
 | カラム | 型 | 制約 | 備考 |
 |---|---|---|---|
 | family_id | uuid | NOT NULL, FK | 認可と絞り込みのため冗長に持つ |
 | child_id | uuid | NOT NULL, FK(ON DELETE CASCADE) | F-CHILD-4 |
-| recorded_by_id | uuid | NOT NULL, FK | 利用者が削除されても履歴は残すため、`ON DELETE SET NULL` にして NULL 可とする(「退会したユーザー」と表示) |
+| recorded_by_id | uuid | NULL 可, FK(ON DELETE SET NULL) | 作成時は必ず入れる。利用者が削除されても履歴は残すため、NULL 可とする(「退会したユーザー」と表示) |
 | fed_at | timestamptz | NOT NULL | UTC で保存 |
-| kind | string | NOT NULL | `formula` / `breast` |
+| kind | string | NOT NULL, CHECK | `formula` / `breast` |
 | amount_ml | integer | CHECK 0〜500 | 任意 |
 | operation_id | uuid | NOT NULL | 「全員」で記録したときの束ね |
 | client_request_id | string | NOT NULL | 冪等性キー(クライアントが生成) |
@@ -174,6 +190,10 @@ erDiagram
 - `(child_id, fed_at DESC) WHERE deleted_at IS NULL` ― 子ごとの前回授乳
 - `UNIQUE (family_id, client_request_id, child_id)` ― **冪等性の担保**(論理削除済みも対象)
 - `(operation_id)` ― 束ねた取り消し
+
+外部キー:
+- `(family_id, child_id)` → `children (family_id, id)`(ON DELETE CASCADE)。**記録の家族と、子どもの家族が一致することを、DB で保証する**。他の家族の子どもに記録を付ける誤りを、構造的に防ぐ。
+- `family_id` → `families`(ON DELETE CASCADE)。
 
 #### invitations / sessions / transfer_codes
 トークンとコードは**平文を保存しない**。セッションのトークン(256ビットの乱数)は SHA-256 のハッシュを保存する。招待コードと引き継ぎコードは、桁数が短く総当たりの余地があるため、**秘密鍵つきの HMAC** を保存する。平文は、API の応答と端末の中にだけ現れる。
@@ -336,7 +356,7 @@ erDiagram
 - 端末の時刻で `fed_at` を決める理由は、通信が遅れても**タップした瞬間**を記録するため(F-FEED-2)。
 
 ### 4.6 論理削除
-- 取り消しは `deleted_at` を設定する。通常の取得は `deleted_at IS NULL` に限定し、`default_scope` ではなく**明示的なスコープ**(`Feeding.active`)で扱う。
+- 取り消しは `deleted_at` を設定する。通常の取得は `deleted_at IS NULL` に限定し、`default_scope` ではなく**明示的なスコープ**(`FeedingEvent.active`)で扱う。
 - ただし、アカウント削除・家族削除(F-DATA-1,2)と、子どもの削除は**物理削除**する(個人情報を残さないため)。
 - 冪等性の制約は、論理削除済みも対象にする。取り消した操作の再送で、記録が復活しないようにするため。
 - 論理削除した記録は、**24時間後に物理削除**する(4.10)。再送が起こりうる時間は短いため、この期間で足りる。
@@ -434,7 +454,7 @@ app/                         # Expo(expo-router)
 | トランザクション | 「全員」で一部が失敗したとき、何も残らないこと |
 | 認証 | 失効したトークン、期限切れ・使用済み・誤ったコード、回数制限、引き継ぎ後に古い端末が 401 になること |
 | アプリ | 経過時間の計算、再送ロジックの単体テスト(Jest)。主要フローの E2E は Maestro を検討 |
-| CI | RuboCop、Brakeman、bundler-audit、RSpec(または Minitest)、ESLint、tsc、build |
+| CI | RuboCop、Brakeman、bundler-audit、Minitest、ESLint、tsc、build |
 
 ## 8. インフラ・運用
 
@@ -465,8 +485,8 @@ spec.md の未決事項に加えて、設計上の論点:
 
 | # | 論点 | 暫定 |
 |---|---|---|
-| 1 | ID は UUID v7 か、標準の UUID v4 か | v7(並び順が時間順になる)。Rails 8 / PostgreSQL 17 で扱える方法を確認する |
-| 2 | テストは RSpec か Minitest か | Rails 標準の Minitest で開始(雛形の状態を維持) |
+| 1 | ID は UUID v7 か、標準の UUID v4 か | **決定**: v4。v7 は作成時刻が ID に含まれるため(2.2) |
+| 2 | テストは RSpec か Minitest か | **決定**: Rails 標準の Minitest |
 | 3 | アプリの E2E テスト(Maestro など)をどこまで入れるか | MVP では単体テストのみ。主要フローが固まったら検討 |
 | 4 | OpenAPI をコードから生成するか、手書きか | rswag などによる生成を検討 |
 | 5 | 本番のホスティング | 第一候補は Fly.io + Neon(無料)。週3のデプロイ前に、地域と料金を確認して最終決定 |

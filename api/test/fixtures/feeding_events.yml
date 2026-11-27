@@ -1,0 +1,9 @@
+elder_morning:
+  family: ours
+  child: elder
+  recorded_by: papa
+  fed_at: <%= 3.hours.ago.to_fs(:db) %>
+  kind: formula
+  amount_ml: 120
+  operation_id: <%= SecureRandom.uuid %>
+  client_request_id: req-elder-morning
