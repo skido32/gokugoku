@@ -1,13 +1,18 @@
 class FeedingEvent < ApplicationRecord
   AMOUNT_ML_RANGE = 0..500
   CLIENT_REQUEST_ID_MAX_LENGTH = 64
+  # ミルク / 母乳 / 混合(母乳のあとにミルクを足す)
+  KINDS = %w[formula breast mixed].freeze
 
   belongs_to :family
   belongs_to :child
   # 利用者が削除されると NULL になる(履歴は残す)。作成時は必須
   belongs_to :recorded_by, class_name: "User", optional: true
 
-  enum :kind, { formula: "formula", breast: "breast" }, validate: true
+  enum :kind, KINDS.index_with(&:itself), validate: true
+
+  # 母乳の量は記録しない(F-FEED-4)。母乳に変えたときも量を空にする。DB の CHECK でも保証している
+  before_validation { self.amount_ml = nil if breast? }
 
   # 論理削除は default_scope にせず、明示的に絞り込む(design.md 4.6)
   scope :active, -> { where(deleted_at: nil) }

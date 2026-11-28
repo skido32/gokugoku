@@ -12,6 +12,8 @@ class Child < ApplicationRecord
 
   validates :name, presence: true, length: { maximum: NAME_MAX_LENGTH }
   validates :color, inclusion: { in: COLORS }
+  # いつもの種類。ボタンで記録するときに使う(F-CHILD-5, F-FEED-3)
+  validates :default_feeding_kind, inclusion: { in: FeedingEvent::KINDS }
   validates :position, numericality: { only_integer: true, in: 0...MAX_PER_FAMILY }
   validate :family_has_room, on: :create
 

@@ -25,6 +25,26 @@ class ChildTest < ActiveSupport::TestCase
     assert_not family.children.build(name: "あ" * 21).valid?
   end
 
+  test "いつもの種類の既定はミルクで、ミルク・母乳・混合から選べる" do
+    child = families(:ours).children.create!(name: "みどり")
+
+    assert_equal "formula", child.default_feeding_kind
+    %w[breast mixed].each do |kind|
+      child.default_feeding_kind = kind
+      assert child.valid?, kind
+    end
+  end
+
+  test "いつもの種類は、決められた値だけ(DB でも守る)" do
+    child = children(:elder)
+    child.default_feeding_kind = "juice"
+
+    assert_not child.valid?
+    assert_raises(ActiveRecord::StatementInvalid) do
+      child.save!(validate: false)
+    end
+  end
+
   test "色は決められた名前だけ" do
     child = children(:elder)
     child.color = "#ff0000"
