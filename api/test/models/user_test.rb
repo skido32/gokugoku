@@ -20,4 +20,19 @@ class UserTest < ActiveSupport::TestCase
       users(:mama).destroy!
     end
   end
+
+  test "家族に入らないまま30日使われていない利用者だけを、放置された利用者とみなす" do
+    abandoned, recently_used, in_family = travel_to(31.days.ago) do
+      [ User.create!, User.create!.tap { |user| Session.start!(user) }, users(:papa) ]
+    end
+    Session.where(user: recently_used).update_all(last_used_at: 1.day.ago)
+    brand_new = User.create!
+
+    result = User.abandoned
+
+    assert_includes result, abandoned
+    assert_not_includes result, recently_used
+    assert_not_includes result, in_family
+    assert_not_includes result, brand_new
+  end
 end

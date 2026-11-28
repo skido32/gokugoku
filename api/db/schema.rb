@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_28_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_28_000003) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -69,6 +69,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_28_000001) do
     t.check_constraint "role::text = ANY (ARRAY['owner'::character varying::text, 'member'::character varying::text])", name: "memberships_role_check"
   end
 
+  create_table "sessions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "token_digest", limit: 64, null: false
+    t.datetime "last_used_at", null: false
+    t.datetime "revoked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["token_digest"], name: "index_sessions_on_token_digest", unique: true
+    t.index ["user_id"], name: "index_sessions_on_user_id"
+  end
+
+  create_table "transfer_codes", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "user_id", null: false
+    t.string "code_digest", limit: 64, null: false
+    t.datetime "expires_at", null: false
+    t.datetime "used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code_digest"], name: "index_transfer_codes_on_code_digest", unique: true
+    t.index ["user_id"], name: "index_transfer_codes_on_user_id"
+  end
+
   create_table "users", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "name", limit: 20
     t.datetime "created_at", null: false
@@ -81,4 +103,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_28_000001) do
   add_foreign_key "feeding_events", "users", column: "recorded_by_id", on_delete: :nullify
   add_foreign_key "memberships", "families", on_delete: :cascade
   add_foreign_key "memberships", "users", on_delete: :cascade
+  add_foreign_key "sessions", "users", on_delete: :cascade
+  add_foreign_key "transfer_codes", "users", on_delete: :cascade
 end

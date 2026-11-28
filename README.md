@@ -24,6 +24,7 @@
 - [0001 構成の方針](docs/adr/0001-architecture.md): API の独立、冪等な記録、論理削除
 - [0002 React Native のアプリにする](docs/adr/0002-react-native.md): PWA と比較して決めた理由
 - [0003 登録なしの匿名アカウント](docs/adr/0003-anonymous-account.md): メールを持たない理由と、その弱点への対策
+- [0004 外からの定期実行で掃除する](docs/adr/0004-scheduled-cleanup.md): 保持期間を過ぎたデータを、ジョブ基盤なしで確実に消す方法
 
 ## 構成
 | ディレクトリ | 内容 |
