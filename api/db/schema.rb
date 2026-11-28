@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_26_000005) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_28_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -22,19 +22,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_26_000005) do
     t.integer "position", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "default_feeding_kind", default: "formula", null: false
     t.index ["family_id", "id"], name: "index_children_on_family_id_and_id", unique: true
     t.check_constraint "\"position\" >= 0 AND \"position\" <= 3", name: "children_position_check"
     t.check_constraint "color::text = ANY (ARRAY['blue'::character varying::text, 'pink'::character varying::text, 'green'::character varying::text, 'orange'::character varying::text, 'purple'::character varying::text, 'yellow'::character varying::text])", name: "children_color_check"
+    t.check_constraint "default_feeding_kind::text = ANY (ARRAY['formula'::character varying, 'breast'::character varying, 'mixed'::character varying]::text[])", name: "children_default_feeding_kind_check"
     t.unique_constraint ["family_id", "position"], deferrable: :deferred, name: "children_family_id_position_key"
   end
 
   create_table "families", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "name", limit: 30, null: false
     t.string "time_zone", default: "Asia/Tokyo", null: false
-    t.string "default_feeding_kind", default: "formula", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.check_constraint "default_feeding_kind::text = ANY (ARRAY['formula'::character varying::text, 'breast'::character varying::text])", name: "families_default_feeding_kind_check"
   end
 
   create_table "feeding_events", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -54,7 +54,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_26_000005) do
     t.index ["family_id", "fed_at"], name: "index_feeding_events_active_by_family", order: { fed_at: :desc }, where: "(deleted_at IS NULL)"
     t.index ["operation_id"], name: "index_feeding_events_on_operation_id"
     t.check_constraint "amount_ml >= 0 AND amount_ml <= 500", name: "feeding_events_amount_ml_check"
-    t.check_constraint "kind::text = ANY (ARRAY['formula'::character varying::text, 'breast'::character varying::text])", name: "feeding_events_kind_check"
+    t.check_constraint "kind::text <> 'breast'::text OR amount_ml IS NULL", name: "feeding_events_breast_has_no_amount_check"
+    t.check_constraint "kind::text = ANY (ARRAY['formula'::character varying, 'breast'::character varying, 'mixed'::character varying]::text[])", name: "feeding_events_kind_check"
   end
 
   create_table "memberships", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

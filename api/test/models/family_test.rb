@@ -1,11 +1,8 @@
 require "test_helper"
 
 class FamilyTest < ActiveSupport::TestCase
-  test "既定のタイムゾーンは Asia/Tokyo、既定の種類はミルク" do
-    family = Family.create!(name: "新しい家族")
-
-    assert_equal "Asia/Tokyo", family.time_zone
-    assert_equal "formula", family.default_feeding_kind
+  test "既定のタイムゾーンは Asia/Tokyo" do
+    assert_equal "Asia/Tokyo", Family.create!(name: "新しい家族").time_zone
   end
 
   test "家族名は必須で、30文字まで" do
@@ -18,16 +15,6 @@ class FamilyTest < ActiveSupport::TestCase
     assert Family.new(name: "家", time_zone: "America/New_York").valid?
     assert_not Family.new(name: "家", time_zone: "Tokyo").valid?
     assert_not Family.new(name: "家", time_zone: "Mars/Olympus").valid?
-  end
-
-  test "既定の種類は formula か breast だけ" do
-    family = families(:ours)
-    family.default_feeding_kind = "juice"
-
-    assert_not family.valid?
-    assert_raises(ActiveRecord::StatementInvalid) do
-      family.save!(validate: false)
-    end
   end
 
   test "子どもは並び順で返す" do

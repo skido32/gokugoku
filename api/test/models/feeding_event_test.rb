@@ -37,8 +37,47 @@ class FeedingEventTest < ActiveSupport::TestCase
     end
   end
 
-  test "種類は formula か breast だけ" do
+  test "種類はミルク・母乳・混合だけ" do
+    assert build_event(kind: :mixed, amount_ml: 40).valid?
     assert_not build_event(kind: "juice").valid?
+  end
+
+  test "DB でも、種類を守る" do
+    event = build_event
+    event.kind = :formula
+    event.save!
+
+    assert_raises(ActiveRecord::StatementInvalid) do
+      event.update_column(:kind, "juice")
+    end
+  end
+
+  test "ミルクと混合は、量がなくても記録できる" do
+    assert build_event(kind: :formula, amount_ml: nil).save
+    assert build_event(kind: :mixed, amount_ml: nil).save
+  end
+
+  test "母乳は量を持たない(送られても空にする)" do
+    event = build_event(kind: :breast, amount_ml: 100)
+    event.save!
+
+    assert_nil event.reload.amount_ml
+  end
+
+  test "母乳に変えると、量は空になる" do
+    event = feeding_events(:elder_morning)
+
+    event.update!(kind: :breast)
+
+    assert_nil event.reload.amount_ml
+  end
+
+  test "DB でも、母乳の記録に量を持たせない" do
+    event = feeding_events(:elder_morning)
+
+    assert_raises(ActiveRecord::StatementInvalid) do
+      event.update_columns(kind: "breast")
+    end
   end
 
   test "他の家族の子どもには記録できない" do
