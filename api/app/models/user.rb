@@ -12,8 +12,8 @@ class User < ApplicationRecord
   validates :name, length: { maximum: NAME_MAX_LENGTH }, allow_nil: true
 
   # 家族に入らないまま、30日使われていない利用者(design.md 4.7 の 7)
-  scope :abandoned, -> {
-    threshold = Time.current - ABANDONED_AFTER
+  scope :abandoned, ->(now: Time.current) {
+    threshold = now - ABANDONED_AFTER
     where.missing(:membership)
       .where(created_at: ...threshold)
       .where.not(id: Session.where(last_used_at: threshold..).select(:user_id))

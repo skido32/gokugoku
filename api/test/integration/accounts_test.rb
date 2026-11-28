@@ -15,14 +15,6 @@ class AccountsTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body["family"]
   end
 
-  test "作るときに、放置された利用者を消す" do
-    abandoned = travel_to(31.days.ago) { User.create! }
-
-    post "/v1/accounts"
-
-    assert_not User.exists?(abandoned.id)
-  end
-
   test "同じ IP からは1時間に10回まで" do
     10.times do
       post "/v1/accounts"

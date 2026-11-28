@@ -3,6 +3,8 @@ class FeedingEvent < ApplicationRecord
   CLIENT_REQUEST_ID_MAX_LENGTH = 64
   # ミルク / 母乳 / 混合(母乳のあとにミルクを足す)
   KINDS = %w[formula breast mixed].freeze
+  RETENTION = 90.days # 保持期間(F-DATA-3)
+  DELETED_GRACE = 24.hours # 論理削除してから、物理削除するまで
 
   belongs_to :family
   belongs_to :child
