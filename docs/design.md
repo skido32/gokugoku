@@ -69,7 +69,6 @@ erDiagram
     uuid id PK
     string name
     string time_zone
-    string default_feeding_kind
   }
   memberships {
     uuid id PK
@@ -84,6 +83,7 @@ erDiagram
     date birthday
     string color
     int position
+    string default_feeding_kind
   }
   feeding_events {
     uuid id PK
@@ -144,7 +144,6 @@ erDiagram
 |---|---|---|---|
 | name | string | NOT NULL | |
 | time_zone | string | NOT NULL, 既定 `Asia/Tokyo` | 履歴の日付区切りに使う |
-| default_feeding_kind | string | NOT NULL, 既定 `formula`, CHECK(`formula` / `breast`) | F-FEED-3 |
 
 `time_zone` は、IANA のタイムゾーン名(例: `Asia/Tokyo`)だけを受け付ける。
 
@@ -167,6 +166,7 @@ erDiagram
 | birthday | date | |
 | color | string | NOT NULL, CHECK(下の色の名前) |
 | position | integer | NOT NULL, CHECK 0〜3。家族内で UNIQUE(遅延評価。並べ替えで入れ替えられるように) |
+| default_feeding_kind | string | NOT NULL, 既定 `formula`, CHECK(`formula` / `breast` / `mixed`)。いつもの種類(F-CHILD-5, F-FEED-3) |
 
 - 人数の上限(4人)は、アプリケーション側で検証する(F-CHILD-3)。
 - 色は、色の値ではなく**名前**で持つ(`blue` / `pink` / `green` / `orange` / `purple` / `yellow`)。実際の色はアプリが決める。登録時は、家族の中で使われていない色を順に割り当てる(F-CHILD-2)。
@@ -179,8 +179,8 @@ erDiagram
 | child_id | uuid | NOT NULL, FK(ON DELETE CASCADE) | F-CHILD-4 |
 | recorded_by_id | uuid | NULL 可, FK(ON DELETE SET NULL) | 作成時は必ず入れる。利用者が削除されても履歴は残すため、NULL 可とする(「退会したユーザー」と表示) |
 | fed_at | timestamptz | NOT NULL | UTC で保存 |
-| kind | string | NOT NULL, CHECK | `formula` / `breast` |
-| amount_ml | integer | CHECK 0〜500 | 任意 |
+| kind | string | NOT NULL, CHECK | `formula`(ミルク)/ `breast`(母乳)/ `mixed`(混合: 母乳のあとにミルクを足す) |
+| amount_ml | integer | CHECK 0〜500。`kind = 'breast'` なら NULL(CHECK) | 任意。ミルクの量(混合は、足したミルクの量)。母乳の量は持たない(F-FEED-4) |
 | operation_id | uuid | NOT NULL | 「全員」で記録したときの束ね |
 | client_request_id | string | NOT NULL | 冪等性キー(クライアントが生成) |
 | deleted_at | timestamptz | | 論理削除 |
@@ -241,13 +241,13 @@ erDiagram
 | PATCH | `/v1/me` | F-FAM-1 | 呼び名を設定する |
 | DELETE | `/v1/me` | F-DATA-1,2 | アカウント削除 |
 | POST | `/v1/families` | F-FAM-1 | 家族を作る |
-| PATCH | `/v1/family` | F-FEED-3 | 家族の設定(名前、既定の授乳種類) |
+| PATCH | `/v1/family` | F-FAM-1 | 家族の設定(名前) |
 | POST | `/v1/family/invitations` | F-FAM-3 | 招待コード(とリンク)を発行 |
 | POST | `/v1/invitations/accept` | F-FAM-1〜5 | 招待コードを本文で受け取り、家族に参加する。コードを URL に入れない(ログに残さないため) |
 | DELETE | `/v1/family/memberships/:id` | F-FAM-6 | メンバーを外す / 退出する |
 | GET | `/v1/children` | | 子ども一覧 |
 | POST | `/v1/children` | F-CHILD-1 | 子どもを登録 |
-| PATCH | `/v1/children/:id` | F-CHILD-4 | 子どもを更新 |
+| PATCH | `/v1/children/:id` | F-CHILD-4, F-CHILD-5 | 子どもを更新(名前・色・並び順・いつもの種類) |
 | DELETE | `/v1/children/:id` | F-CHILD-4 | 子どもを削除 |
 | GET | `/v1/dashboard` | F-VIEW-1〜6 | ホームの表示に必要な情報をまとめて返す |
 | GET | `/v1/feedings` | F-VIEW-3 | 履歴(カーソル方式) |
@@ -271,7 +271,8 @@ erDiagram
 ```
 - `client_request_id`: クライアントが**タップごとに**生成する UUID。同じ操作の再送では同じ値を使う。
 - `child_ids`: 1人以上。すべて自分の家族の子どもでなければならない。
-- `kind` を省略すると、家族の既定値を使う。
+- `kind` を省略すると、**子どもごとの `default_feeding_kind`** を使う(「全員」でも、子ごとに種類が変わりうる)。指定した場合は、すべての子に同じ種類を使う(履歴からの後追い記録など)。
+- `kind` が `breast` の記録は、`amount_ml` を保存しない(送られても NULL にする)。
 
 レスポンス(新規作成は **201**、同じ `client_request_id` の再送は **200** で同じ内容):
 ```json
@@ -293,7 +294,8 @@ erDiagram
 | 項目 | ルール |
 |---|---|
 | `fed_at` | 省略時はサーバー時刻。**サーバー時刻より2分を超えて未来なら 422**。2分以内の未来は、サーバー時刻に丸める(端末の時計のずれの許容)。 |
-| `amount_ml` | 0〜500 の整数。 |
+| `kind` | `formula` / `breast` / `mixed`。省略可(上記)。 |
+| `amount_ml` | 0〜500 の整数。`breast` では NULL にする。 |
 | `fed_at`(下限) | 保持期間(90日)より前なら 422(F-DATA-4)。 |
 | `child_ids` | 重複不可。1〜4件。 |
 
@@ -302,19 +304,28 @@ erDiagram
 {
   "server_time": "2026-11-15T12:40:05Z",
   "children": [
-    { "id": "…", "name": "A", "color": "#e11d48", "position": 0,
+    { "id": "…", "name": "A", "color": "blue", "position": 0, "default_feeding_kind": "formula",
       "last_feeding": { "id": "…", "fed_at": "…", "kind": "formula", "amount_ml": 120,
-                        "recorded_by": { "name": "ママ" } } }
+                        "recorded_by": { "name": "ママ" } },
+      "amount_suggestions": {
+        "formula": { "last_ml": 120, "frequent_ml": [100, 120, 140] },
+        "mixed":   { "last_ml": null, "frequent_ml": [] } } }
   ],
   "recent_feedings": [ { "…": "…" } ],
   "cursor": "…"
 }
 ```
 - `server_time` により、クライアントは端末の時計のずれを補正して経過時間を表示する(F-VIEW-2)。
+- `amount_suggestions` は、量の入力の最初の値と「よく使う量」に使う(4.12)。量を持たない母乳は含めない。
 - `ETag` を付け、変化がなければ **304** を返す(ポーリングの負荷を下げる。F-VIEW-5)。
 
 #### DELETE /v1/feedings/operations/:operation_id
 同じ `operation_id` の記録を、**1つのトランザクションで**まとめて論理削除する。すでに削除済みの場合も **204**(冪等)。
+
+#### PATCH /v1/feedings/:id
+1件の `kind`・`amount_ml`・`fed_at` を変える(記録した直後の表示と、履歴の修正で使う。F-FEED-8, F-FEED-11)。
+- `kind` を `breast` に変えると、`amount_ml` は NULL になる。
+- 「全員」の記録を直すときは、子ごとに1件ずつ送る(子によって種類と量が違うため)。時刻を直すときは、同じ `operation_id` の記録すべてに同じ時刻を送る。
 
 ## 4. 主要な設計判断
 
@@ -396,6 +407,24 @@ erDiagram
 - MVP にはジョブ基盤を入れない。メール送信もないため、非同期の処理は要らない。定期実行が本当に必要になった時点で、Solid Queue などを検討する(ADR で記録)。
   - Solid Queue は、常にDBへ問い合わせるため、Neon の無料プランでは、DBの停止を妨げて計算時間を消費する(私の推測。実運用で確認)。
 
+### 4.11 記録した直後の操作(F-FEED-7, F-FEED-11, F-FEED-12)
+- 押した瞬間に、楽観的更新でカードを「たった今」にし、軽く振動させる。通信は裏で行う(4.4, 4.9)。
+- 画面の下に「記録しました」を **5秒** 表示する。表示中は、次の操作ができる。
+  - **種類の変更(1タップ)**: その記録に `PATCH /v1/feedings/:id` を送る。例外の回(いつもは母乳だが今回はミルク、など)を、入力画面を開かずに直すため。
+  - **量を入れる**: 量・種類の入力を開く。「全員」の記録では、全員分を1画面で直せる入力を開き、子ごとに PATCH を送る。
+  - **取り消し**: `DELETE /v1/feedings/operations/:operation_id`。
+- 押したボタンは **3秒** 押せなくする(二重タップの防止)。冪等性キー(4.1)は再送の対策で、別のタップは別の操作として扱うため、二重タップはクライアントで防ぐ。
+- 「押したら量の入力を開く」は**端末ごとの設定**で、サーバーには保存しない(夫婦で使い方を分けられるようにするため)。
+
+### 4.12 量の入力(F-FEED-4, F-FEED-13)
+- **±ボタン**: 1回で 10ml 増減する。長押しの間は続けて増減し、押し続けるほど速くする。範囲は 0〜500ml で、端では押せなくする。値が空のときに＋を押すと 10ml になる。
+- **数字を押す**: テンキーで直接入力する(125ml のような半端な量のため)。
+- **最初の値**: その子の、同じ種類で量のある直近の記録の量(`last_ml`)。なければ空。入力画面で種類を変えたとき、まだ量を触っていなければ、その種類の `last_ml` に切り替える。
+- **よく使う量**: その子・その種類で、直近7日間に記録した量を回数の多い順に最大5つ選び、小さい順に並べる(`frequent_ml`)。同じ回数なら、新しく記録した方を優先する。5つに満たないときは、アプリが 20/40/60/80/100 のうち重複しないもので補い、小さい順に並べる。
+  - サーバーで集計する理由: ホームは24時間分の履歴しか持たないため。対象は `deleted_at IS NULL` かつ `amount_ml IS NOT NULL` の記録で、既存のインデックス `(child_id, fed_at) WHERE deleted_at IS NULL` で絞る(子ども1人あたり7日で数十件のため、新しいインデックスは要らない)。
+  - 固定の選択肢にしない理由: 飲む量は月齢とともに 20ml 前後から 200ml 以上に増えるため。月齢から目安の量を出すことはしない(仕様の「判断しない」)。
+- 送信は [保存する] を押したときだけ行う(±のたびには送らない)。
+
 ## 5. フロントエンド設計(アプリ)
 
 ### 5.1 構成
@@ -426,7 +455,35 @@ app/                         # Expo(expo-router)
 - **ポーリング**: アプリが前面にある間だけ5秒ごと(`AppState` で、背面に回ったら止める)。前面に戻ったら、すぐに取得する。
 - **招待リンク**: `https://<ドメイン>/invite/<コード>` を、ユニバーサルリンク(iOS)/ アプリリンク(Android)でアプリに渡す。アプリが入っていなければ、Web の受け口がストアへ案内する。
 - **配布**: EAS Build で作り、TestFlight と Google Play の内部テストで、まず家族に配る。軽微な修正は EAS Update(OTA)で出す。
+- **端末ごとの設定**: 「押したら量の入力を開く」は、端末のストレージ(AsyncStorage。秘密情報ではないため)に置く。
 - **MVP の後**: ウィジェット(iOS は WidgetKit。Swift のコードが必要)、プッシュ通知。
+
+### 5.4 見た目の基本
+画面ごとの要件は [ui-brief.md](ui-brief.md)。デザイン案は Claude のデザイン(非公開)で作り、決まった値をここに残す。
+
+| 項目 | 昼 | 夜 |
+|---|---|---|
+| 背景 | `#FBF5EF`(ミルクのようなベージュ) | `#2A211F`(ココア) |
+| 面(カード) | `#FFFFFF` | `#3A2E2B` |
+| 文字 | `#4A3A35` | `#F6EBE4` |
+| 補足の文字 | `#7D665D` | `#C9B4AA` |
+| アクセント(ロゴ、「全員」ボタン) | `#A8475F`(ローズ) | `#F2A7B8` |
+| 淡いアクセント(上部の帯など) | `#FBE3E8` | `#3A2A2C` |
+| 知らせ(重複など) | 背景 `#FFF1D6` / 文字 `#5E400E` | 同じ系統で調整 |
+
+子どもの色(ボタンの背景 / 文字)。明るさにも差をつけ、色だけに頼らず、位置と名前でも区別する:
+
+| 名前 | 昼 | 夜 |
+|---|---|---|
+| `blue` | `#79A6DC` / `#263A55` | `#7FA6DA` / `#1F2C40` |
+| `pink` | `#F7BCCA` / `#6E2A3C` | `#F6B9C7` / `#5A2232` |
+| `green` | `#8CCBA6` / `#1F4A33` | 未調整 |
+| `orange` | `#F4B98A` / `#5E3413` | 未調整 |
+| `purple` / `yellow` | 未調整(変更用) | 未調整 |
+
+- 文字: 見出しと数字は **Zen Maru Gothic**、本文は **Noto Sans JP**。
+- 授乳ボタンの高さ: 1人なら 132px、2人なら 104px、3〜4人なら 72px(各行の右)。「全員」ボタンは 64px。押せる部分は最小 44px。
+- イラスト: 顔のついたミルクのしずく(マスコット)と、子どもの顔のアイコン。SVG で持つ。絵文字は使わない。
 
 ## 6. セキュリティ・プライバシー
 
