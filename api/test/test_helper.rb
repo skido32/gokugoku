@@ -10,6 +10,15 @@ module ActiveSupport
     # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
     fixtures :all
 
-    # Add more helper methods to be used by all tests here...
+    # rate_limit の回数を、テストごとに消す
+    setup { Rails.cache.clear }
+  end
+end
+
+module ActionDispatch
+  class IntegrationTest
+    def auth_headers(user = users(:papa))
+      { "Authorization" => "Bearer #{::Session.start!(user).token}" }
+    end
   end
 end
